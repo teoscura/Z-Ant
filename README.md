@@ -181,8 +181,6 @@ Hardware-in-the-Loop (HIL) Testing: Integrate a hardware test bench with connect
 - Containerized CI Environment: Use Docker containers to standardize the CI/CD environment, ensuring consistent builds and tests across all contributors.
 
 
-
-
 ## Containerization
 
 - Follow our [Docker guide](/docs/How_TO_DOCKER_101.md).
