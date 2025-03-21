@@ -186,6 +186,13 @@ pub fn pageSelectModel() !void {
                 if (std.mem.eql(u8, getModelPath(model_options), "")) {
                     try dvui.dialog(@src(), .{ .modal = true, .title = "Error", .message = "You must select a model" });
                 } else {
+                    var buf: [std.fs.max_path_bytes]u8 = undefined;
+                    const exe_dir = try std.fs.selfExeDirPath(&buf);
+                    const folder = try std.fs.path.join(std.heap.page_allocator, &[_][]const u8{ exe_dir, "generated/" });
+                    const pageallocator = std.heap.page_allocator;
+                    var argv2 = [_][]const u8{ "open", folder };
+                    var child2 = std.process.Child.init(&argv2, pageallocator);
+                    try child2.spawn();
                     page = .generating_code;
                 }
             }
