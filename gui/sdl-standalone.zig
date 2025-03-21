@@ -101,14 +101,26 @@ fn getModelPath(value: ModelOptions) []const u8 {
 
 pub fn pageHome() !void {
     {
-        var vbox = try dvui.box(@src(), .vertical, .{ .gravity_x = 0.5, .gravity_y = 0.5 });
-        defer vbox.deinit();
+        var vbox0 = try dvui.box(@src(), .vertical, .{ .gravity_x = 0.5, .gravity_y = 0.4 });
+        defer vbox0.deinit();
 
-        try dvui.label(@src(), "Welcome to Z-Ant", .{}, .{});
+        var heading = try dvui.textLayout(@src(), .{}, .{
+            .background = false,
+            .margin = .{ .h = 20.0 },
+        });
+        try heading.addText("Z-Ant Simplifies the Deployment\nand Optimization of Neural Networks\non Microprocessors", .{ .font_style = .title });
+        heading.deinit();
 
-        if (try dvui.button(@src(), "Select a Model", .{}, .{})) {
+        if (try (dvui.button(@src(), "Get Started", .{}, .{ .gravity_x = 0.5 }))) {
             page = .select_model;
         }
+    }
+
+    var footer = try dvui.textLayout(@src(), .{}, .{ .background = false, .gravity_x = 0.5, .gravity_y = 0.8 });
+    try footer.addText("Z-Ant is an open-source project powered by Zig\nFor help visit our ", .{});
+    footer.deinit();
+    if (try footer.addTextClick("GitHub", .{ .color_text = .{ .color = .{ .r = 0x35, .g = 0x84, .b = 0xe4 } } })) {
+        try dvui.openURL("https://github.com/ZantFoundation/Z-Ant");
     }
 }
 
@@ -116,11 +128,17 @@ pub fn pageSelectModel() !void {
     if (try dvui.buttonIcon(@src(), "back", entypo.chevron_left, .{}, .{})) {
         page = .home;
     }
+
     {
         var vbox = try dvui.box(@src(), .vertical, .{ .gravity_x = 0.5, .gravity_y = 0.5 });
         defer vbox.deinit();
 
-        try dvui.label(@src(), "Select a Model", .{}, .{});
+        var heading = try dvui.textLayout(@src(), .{}, .{
+            .background = false,
+            .margin = .{ .h = 20.0 },
+        });
+        try heading.addText("Select a Model", .{ .font_style = .title });
+        heading.deinit();
 
         try dvui.label(@src(), "Built in Models:", .{}, .{});
         inline for (@typeInfo(ModelOptions).@"enum".fields[1 .. model_lenght - 1], 0..) |field, i| {
@@ -206,7 +224,7 @@ pub fn main() !void {
     var backend = try Backend.initWindow(.{
         .allocator = gpa,
         .size = .{ .w = 800.0, .h = 600.0 },
-        .min_size = .{ .w = 250.0, .h = 350.0 },
+        .min_size = .{ .w = 600.0, .h = 400.0 },
         .vsync = vsync,
         .title = "Z-Ant",
         .icon = window_icon_png, // can also call setIconFromFileContent()
