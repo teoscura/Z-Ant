@@ -25,12 +25,18 @@ var g_win: ?*dvui.Window = null;
 /// - dvui renders the whole application
 /// - render frames only when needed
 ///
+/// Colors
+const orange = dvui.Color{ .r = 255, .g = 165, .b = 0, .a = 255 };
+const darkorange = dvui.Color{ .r = 172, .g = 99, .b = 22, .a = 255 };
+const hoverorange = dvui.Color{ .r = 235, .g = 227, .b = 213, .a = 255 };
+const lightorange = dvui.Color{ .r = 255, .g = 246, .b = 229, .a = 255 };
+
 const Page = enum {
     home,
     select_model,
+    generating_code,
     deploy_options,
-    generating,
-    confirm_deploy,
+    generating_library,
 };
 var page: Page = .home;
 
@@ -39,7 +45,7 @@ var filename: ?[:0]const u8 = null;
 
 const ModelOptions = enum(u8) { default, debug_model, mnist_1, mnist_8, sentiment, wake_word, custom };
 var model_options: ModelOptions = @enumFromInt(0);
-const model_lenght = @typeInfo(ModelOptions).@"enum".fields.len;
+const model_length = @typeInfo(ModelOptions).@"enum".fields.len;
 
 fn pathToFileName(fp: ?[:0]const u8) [:0]const u8 {
     if (fp == null or fp.?.len == 0) return "";
@@ -75,7 +81,7 @@ fn getModelString(value: ModelOptions) []const u8 {
             if (filename) |name| {
                 return name;
             } else {
-                return "Not selected";
+                return "Not Selected";
             }
         },
     };
@@ -111,7 +117,7 @@ pub fn pageHome() !void {
         try heading.addText("Z-Ant Simplifies the Deployment\nand Optimization of Neural Networks\non Microprocessors", .{ .font_style = .title });
         heading.deinit();
 
-        if (try (dvui.button(@src(), "Get Started", .{}, .{ .gravity_x = 0.5 }))) {
+        if (try (dvui.button(@src(), "Get Started", .{}, .{ .gravity_x = 0.5, .padding = dvui.Rect.all(15) }))) {
             page = .select_model;
         }
     }
@@ -119,69 +125,87 @@ pub fn pageHome() !void {
     var footer = try dvui.textLayout(@src(), .{}, .{ .background = false, .gravity_x = 0.5, .gravity_y = 0.8 });
     try footer.addText("Z-Ant is an open-source project powered by Zig\nFor help visit our ", .{});
     footer.deinit();
-    if (try footer.addTextClick("GitHub", .{ .color_text = .{ .color = .{ .r = 0x35, .g = 0x84, .b = 0xe4 } } })) {
+    if (try footer.addTextClick("GitHub", .{ .color_text = .{ .color = orange } })) {
         try dvui.openURL("https://github.com/ZantFoundation/Z-Ant");
     }
 }
 
 pub fn pageSelectModel() !void {
-    if (try dvui.buttonIcon(@src(), "back", entypo.chevron_left, .{}, .{})) {
+    if (try dvui.buttonIcon(@src(), "back", entypo.chevron_left, .{}, .{ .margin = dvui.Rect.all(15) })) {
         page = .home;
     }
 
     {
-        var vbox = try dvui.box(@src(), .vertical, .{ .gravity_x = 0.5, .gravity_y = 0.5 });
+        var vbox = try dvui.box(@src(), .vertical, .{ .gravity_x = 0.5, .gravity_y = 0.3 });
         defer vbox.deinit();
 
-        var heading = try dvui.textLayout(@src(), .{}, .{
-            .background = false,
-            .margin = .{ .h = 20.0 },
-        });
-        try heading.addText("Select a Model", .{ .font_style = .title });
-        heading.deinit();
+        try dvui.label(@src(), "Select a Model", .{}, .{ .font_style = .title, .margin = .{ .h = 20.0 }, .gravity_x = 0.5 });
 
-        try dvui.label(@src(), "Built in Models:", .{}, .{});
-        inline for (@typeInfo(ModelOptions).@"enum".fields[1 .. model_lenght - 1], 0..) |field, i| {
-            const enum_value = @as(ModelOptions, @enumFromInt(field.value));
-            const display_name = getModelString(enum_value);
-            if (try dvui.radio(@src(), model_options == enum_value, display_name, .{ .id_extra = i })) {
-                model_options = enum_value;
+        {
+            var vbox1 = try dvui.box(@src(), .vertical, .{ .gravity_x = 0.5 });
+            defer vbox1.deinit();
+
+            try dvui.label(@src(), "Built in Models", .{}, .{ .font_style = .heading });
+
+            inline for (@typeInfo(ModelOptions).@"enum".fields[1 .. model_length - 1], 0..) |field, i| {
+                const enum_value = @as(ModelOptions, @enumFromInt(field.value));
+                const display_name = getModelString(enum_value);
+                if (try dvui.radio(@src(), model_options == enum_value, display_name, .{ .id_extra = i })) {
+                    model_options = enum_value;
+                }
             }
-        }
 
-        try dvui.label(@src(), "Custom Model:", .{}, .{});
+            try dvui.label(@src(), "Custom Model", .{}, .{ .font_style = .heading, .margin = .{ .y = 10.0 } });
 
-        if (try dvui.button(@src(), "Open ONNX File", .{}, .{})) {
-            if (filepath) |fp| {
-                filename = null;
-                gpa.free(fp);
-                filepath = null;
-            }
-            filepath = try dvui.dialogNativeFileOpen(gpa, .{ .title = "Pick ONNX File" });
-            if (filepath) |fp| {
-                if (isOnnx(fp)) {
-                    filename = pathToFileName(fp);
-                    model_options = @enumFromInt(model_lenght - 1);
-                } else {
+            if (try dvui.button(@src(), "Open ONNX File", .{}, .{})) {
+                if (filepath) |fp| {
+                    filename = null;
                     gpa.free(fp);
                     filepath = null;
-                    try dvui.dialog(@src(), .{ .modal = true, .title = "Error", .message = "File extension must be .onnx" });
+                }
+                filepath = try dvui.dialogNativeFileOpen(gpa, .{ .title = "Pick ONNX File" });
+                if (filepath) |fp| {
+                    if (isOnnx(fp)) {
+                        filename = pathToFileName(fp);
+                        model_options = @enumFromInt(model_length - 1);
+                    } else {
+                        gpa.free(fp);
+                        filepath = null;
+                        try dvui.dialog(@src(), .{ .modal = true, .title = "Error", .message = "File extension must be .onnx" });
+                    }
+                }
+            }
+
+            const enum_value = @as(ModelOptions, @enumFromInt(model_length - 1));
+            const display_name = getModelString(enum_value);
+            if (try dvui.radio(@src(), model_options == enum_value, display_name, .{ .id_extra = model_length - 1 })) {
+                model_options = enum_value;
+            }
+
+            if (try dvui.button(@src(), "Generate Zig Code", .{}, .{ .gravity_x = 0.5, .margin = .{ .y = 20.0 }, .padding = dvui.Rect.all(15) })) {
+                if (std.mem.eql(u8, getModelPath(model_options), "")) {
+                    try dvui.dialog(@src(), .{ .modal = true, .title = "Error", .message = "You must select a model" });
+                } else {
+                    page = .generating_code;
                 }
             }
         }
+    }
+}
 
-        const enum_value = @as(ModelOptions, @enumFromInt(model_lenght - 1));
-        const display_name = getModelString(enum_value);
-        if (try dvui.radio(@src(), model_options == enum_value, display_name, .{ .id_extra = model_lenght - 1 })) {
-            model_options = enum_value;
-        }
+pub fn pageGeneratingCode() !void {
+    if (try dvui.buttonIcon(@src(), "back", entypo.chevron_left, .{}, .{ .margin = dvui.Rect.all(15) })) {
+        page = .select_model;
+    }
+    {
+        var vbox = try dvui.box(@src(), .vertical, .{ .gravity_x = 0.5, .gravity_y = 0.4 });
+        defer vbox.deinit();
 
-        if (try dvui.button(@src(), "Choose options", .{}, .{})) {
-            if (std.mem.eql(u8, getModelPath(model_options), "")) {
-                try dvui.dialog(@src(), .{ .modal = true, .title = "Error", .message = "You must select a model" });
-            } else {
-                page = .deploy_options;
-            }
+        try dvui.label(@src(), "Generating Zig Code ...", .{}, .{ .font_style = .heading, .margin = .{ .h = 2.0 } });
+        try dvui.label(@src(), "Once completed, the code will be avaialbe in ~/generated", .{}, .{ .margin = .{ .h = 10.0 } });
+
+        if (try dvui.button(@src(), "Continue", .{}, .{ .gravity_x = 0.5, .padding = dvui.Rect.all(15) })) {
+            page = .deploy_options;
         }
     }
 }
@@ -190,24 +214,47 @@ var target_cpu_val: usize = 0;
 var target_os_val: usize = 0;
 
 pub fn pageDeployOptions() !void {
-    if (try dvui.buttonIcon(@src(), "back", entypo.chevron_left, .{}, .{})) {
+    if (try dvui.buttonIcon(@src(), "back", entypo.chevron_left, .{}, .{ .margin = dvui.Rect.all(15) })) {
         page = .select_model;
     }
     {
-        var vbox = try dvui.box(@src(), .vertical, .{ .gravity_x = 0.5, .gravity_y = 0.5 });
+        var vbox = try dvui.box(@src(), .vertical, .{ .gravity_x = 0.5, .gravity_y = 0.3 });
         defer vbox.deinit();
 
-        try dvui.label(@src(), "Deploy Options", .{}, .{});
+        try dvui.label(@src(), "Deploy Options", .{}, .{ .font_style = .title, .margin = .{ .h = 20.0 }, .gravity_x = 0.5 });
 
-        const target_cpu = [_][]const u8{ "x86_64", "x86", "arm", "aarch64", "riscv32", "riscv64", "powerpc", "powerpc64", "mips32", "mips64", "wasm32", "wasm64", "sparc", "sparc64" };
-        const target_os = [_][]const u8{ "Linux", "Windows", "macOS", "Android", "FreeBSD" };
+        {
+            var vbox1 = try dvui.box(@src(), .vertical, .{ .gravity_x = 0.5 });
+            defer vbox1.deinit();
 
-        try dvui.label(@src(), "Target CPU", .{}, .{});
-        _ = try dvui.dropdown(@src(), &target_cpu, &target_cpu_val, .{ .min_size_content = .{ .w = 150 } });
-        try dvui.label(@src(), "Target OS", .{}, .{});
-        _ = try dvui.dropdown(@src(), &target_os, &target_os_val, .{ .min_size_content = .{ .w = 150 } });
+            const target_cpu = [_][]const u8{ "x86_64", "x86", "arm", "aarch64", "riscv32", "riscv64", "powerpc", "powerpc64", "mips32", "mips64", "wasm32", "wasm64", "sparc", "sparc64" };
+            const target_os = [_][]const u8{ "Linux", "Windows", "macOS", "Android", "FreeBSD" };
 
-        if (try dvui.button(@src(), "Generate static library", .{}, .{})) {
+            try dvui.label(@src(), "Target CPU", .{}, .{ .font_style = .heading, .margin = .{ .h = 5.0 } });
+            _ = try dvui.dropdown(@src(), &target_cpu, &target_cpu_val, .{ .min_size_content = .{ .w = 150 }, .margin = .{ .h = 15.0 } });
+
+            try dvui.label(@src(), "Target OS", .{}, .{ .font_style = .heading, .margin = .{ .h = 5.0 } });
+            _ = try dvui.dropdown(@src(), &target_os, &target_os_val, .{ .min_size_content = .{ .w = 150 }, .margin = .{ .h = 30.0 } });
+        }
+
+        if (try dvui.button(@src(), "Generate Static Library", .{}, .{ .gravity_x = 0.5, .padding = dvui.Rect.all(15) })) {
+            page = .generating_library;
+        }
+    }
+}
+
+pub fn pageGeneratingLibrary() !void {
+    if (try dvui.buttonIcon(@src(), "back", entypo.chevron_left, .{}, .{ .margin = dvui.Rect.all(15) })) {
+        page = .deploy_options;
+    }
+    {
+        var vbox = try dvui.box(@src(), .vertical, .{ .gravity_x = 0.5, .gravity_y = 0.4 });
+        defer vbox.deinit();
+
+        try dvui.label(@src(), "Generating Static Library ...", .{}, .{ .font_style = .heading, .margin = .{ .h = 2.0 } });
+        try dvui.label(@src(), "Once completed, the library will be avaialbe in ~/zig-out", .{}, .{ .margin = .{ .h = 10.0 } });
+
+        if (try dvui.button(@src(), "Conclude", .{}, .{ .gravity_x = 0.5, .padding = dvui.Rect.all(15) })) {
             page = .home;
         }
     }
@@ -282,30 +329,29 @@ pub fn main() !void {
 // both dvui and SDL drawing
 fn gui_frame() !void {
     {
-        var m = try dvui.menu(@src(), .horizontal, .{ .background = true, .expand = .horizontal });
+        var m = try dvui.menu(@src(), .horizontal, .{ .background = true, .color_fill = .{ .color = lightorange }, .expand = .horizontal });
         defer m.deinit();
 
         const imgsize = try dvui.imageSize("Z-Ant icon", zant_icon);
         try dvui.image(@src(), "Z-Ant icon", zant_icon, .{
             .gravity_y = 0.5,
-            .min_size_content = .{ .w = imgsize.w * 0.1, .h = imgsize.h * 0.1 },
+            .min_size_content = .{ .w = imgsize.w * 0.12, .h = imgsize.h * 0.12 },
+            .margin = .{ .x = 20, .y = 10, .h = 10.0, .w = 3.0 },
         });
-        try dvui.label(@src(), "Z-Ant", .{}, .{ .gravity_y = 0.5 });
+        try dvui.label(@src(), "Z-Ant", .{}, .{ .gravity_y = 0.5, .font_style = .heading });
 
-        var invalidate = false;
-        if (try dvui.Theme.picker(@src(), .{
-            .gravity_y = 0.5,
-        })) {
-            invalidate = true;
+        if (try dvui.buttonIcon(@src(), "back", entypo.moon, .{}, .{ .background = false, .gravity_y = 0.5, .gravity_x = 1.0, .margin = .{ .w = 20.0 } })) {
+            page = .home;
         }
     }
 
-    var scroll = try dvui.scrollArea(@src(), .{}, .{ .expand = .both, .color_fill = .{ .name = .fill_window } });
+    var scroll = try dvui.scrollArea(@src(), .{}, .{ .expand = .both, .color_fill = .{ .color = dvui.Color.white } });
     defer scroll.deinit();
     switch (page) {
         .home => try pageHome(),
         .select_model => try pageSelectModel(),
+        .generating_code => try pageGeneratingCode(),
         .deploy_options => try pageDeployOptions(),
-        else => {},
+        .generating_library => try pageGeneratingLibrary(),
     }
 }
