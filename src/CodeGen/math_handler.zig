@@ -78,14 +78,14 @@ pub fn write_math_op(writer: std.fs.File.Writer, node: *ReadyNode) !void {
         try write_mul(writer, node);
     } else if (std.mem.eql(u8, node.nodeProto.op_type, "OneHot")) {
         try writer.writeAll("// Handle OneHot\n");
-    } else if (std.mem.eql(u8, node.nodeProto.op_type, "Mean")) {
+    } else if (std.mem.eql(u8, node.nodeProto.op_type, "ReduceMean")) {
         try write_reduceMean(writer, node);
     } else if (std.mem.eql(u8, node.nodeProto.op_type, "Relu")) {
         try write_ReLU(writer, node);
     } else if (std.mem.eql(u8, node.nodeProto.op_type, "Reshape")) {
         try write_reshape(writer, node);
     } else if (std.mem.eql(u8, node.nodeProto.op_type, "Resize")) {
-        try writer.writeAll("// Handle Resize\n");
+        try write_resize(writer, node);
     } else if (std.mem.eql(u8, node.nodeProto.op_type, "Sigmoid")) {
         try write_sigmoid(writer, node);
     } else if (std.mem.eql(u8, node.nodeProto.op_type, "Softmax")) {
@@ -1480,6 +1480,7 @@ inline fn write_unsqueeze(writer: std.fs.File.Writer, node: *ReadyNode) !void {
         output_name, // output tensor
     });
 }
+
 inline fn write_transpose(writer: std.fs.File.Writer, node: *ReadyNode) !void {
     // https://onnx.ai/onnx/operators/onnx__Transpose.html
     // INPUTS:
@@ -1791,5 +1792,151 @@ inline fn write_split(writer: std.fs.File.Writer, node: *ReadyNode) !void {
         \\
         \\    // Final dummy operation that returns an error union
         \\    _ = @import("std").fmt.bufPrint(&[_]u8{}, "", .{})
+    );
+}
+
+inline fn write_resize(writer: std.fs.File.Writer, node: *ReadyNode) !void {
+    // https://onnx.ai/onnx/operators/onnx__Resize.html
+    // INPUTS:
+    //      - X (heterogeneous) - T: Input tensor
+    //      - roi (optional) - T2: ROI (region of interest) tensor
+    //      - scales (optional, heterogeneous) - tensor(float): The scale array along each dimension
+    //      - sizes (optional, heterogeneous) - tensor(int64): Target size of the output tensor
+    // OUTPUTS:
+    //      - Y (heterogeneous) - T: Resized output tensor
+    // ATTRIBUTES:
+    //      - antialias - INT (default is '0')
+    //      - axes - INTS
+    //      - coordinate_transformation_mode - STRING (default is 'half_pixel')
+    //      - cubic_coeff_a - FLOAT (default is '-0.75')
+    //      - exclude_outside - INT (default is '0')
+    //      - extrapolation_value - FLOAT (default is '0.0')
+    //      - keep_aspect_ratio_policy - STRING (default is 'stretch')
+    //      - mode - STRING (default is 'nearest')
+    //      - nearest_mode - STRING (default is 'round_prefer_floor')
+    //
+
+    //----create tensor_X_string
+    var tensor_X_string: []u8 = undefined;
+    defer allocator.free(tensor_X_string);
+
+    if (node.inputs.items[0].tag == globals.TensorTag.INITIALIZER) {
+        tensor_X_string = try std.mem.concat(allocator, u8, &[_][]const u8{
+            "@constCast(&param_lib.tensor_",
+            try utils.getSanitizedName(node.inputs.items[0].name),
+            ")",
+        });
+    } else {
+        tensor_X_string = try std.mem.concat(allocator, u8, &[_][]const u8{ "&tensor_", try utils.getSanitizedName(node.inputs.items[0].name) });
+    }
+
+    // ---- optional inputs
+    var tensor_roi_string: []const u8 = "null";
+    defer allocator.free(tensor_roi_string);
+    var data_scales_string: []const u8 = "null";
+    defer allocator.free(data_scales_string);
+    var data_sizes_string: []const u8 = "null";
+    defer allocator.free(data_sizes_string);
+
+    //for each other optional input:
+    for (1..node.inputs.items.len) |i| {
+        if (std.mem.indexOf(u8, node.inputs.items[i].name, "roi")) |_| { //----create tensor_roi_string
+            if (node.inputs.items[i].tag == globals.TensorTag.INITIALIZER) {
+                tensor_roi_string = try std.mem.concat(allocator, u8, &[_][]const u8{
+                    "@constCast(&param_lib.tensor_",
+                    try utils.getSanitizedName(node.inputs.items[i].name),
+                    ")",
+                });
+            } else {
+                tensor_roi_string = try std.mem.concat(allocator, u8, &[_][]const u8{ "&tensor_", try utils.getSanitizedName(node.inputs.items[0].name) });
+            }
+        } else if (std.mem.indexOf(u8, node.inputs.items[i].name, "scales")) |_| { //----create tensor_scales_string
+            if (node.inputs.items[i].tag == globals.TensorTag.INITIALIZER) {
+                data_scales_string = try std.mem.concat(allocator, u8, &[_][]const u8{
+                    "@constCast(&param_lib.tensor_",
+                    try utils.getSanitizedName(node.inputs.items[i].name),
+                    ".data",
+                    ")",
+                });
+            } else {
+                data_scales_string = try std.mem.concat(allocator, u8, &[_][]const u8{ "&tensor_", try utils.getSanitizedName(node.inputs.items[0].name), ".data" });
+            }
+        } else if (std.mem.indexOf(u8, node.inputs.items[i].name, "sizes")) |_| { //----create tensor_sizes_string
+            if (node.inputs.items[i].tag == globals.TensorTag.INITIALIZER) {
+                data_sizes_string = try std.mem.concat(allocator, u8, &[_][]const u8{
+                    "@constCast(&param_lib.tensor_",
+                    try utils.getSanitizedName(node.inputs.items[i].name),
+                    ".data",
+                    ")",
+                });
+            } else {
+                data_sizes_string = try std.mem.concat(allocator, u8, &[_][]const u8{ "&tensor_", try utils.getSanitizedName(node.inputs.items[0].name), ".data" });
+            }
+        }
+    }
+
+    // ---- gasthering ATTRIBUTES from protoNode
+    var antialias: i64 = 0;
+    var axes: []i64 = &[_]i64{};
+    defer allocator.free(axes);
+    var coordinate_transformation_mode: []const u8 = "half_pixel";
+    defer allocator.free(coordinate_transformation_mode);
+    var cubic_coeff_a: f64 = -0.75;
+    var exclude_outside: i64 = 0;
+    var extrapolation_value: f64 = 0.0;
+    var keep_aspect_ratio_policy: []const u8 = "stretch";
+    defer allocator.free(keep_aspect_ratio_policy);
+    var mode: []const u8 = "nearest";
+    defer allocator.free(mode);
+    var nearest_mode: []const u8 = "round_prefer_floor";
+    defer allocator.free(nearest_mode);
+
+    for (node.nodeProto.attribute) |attr| {
+        if (std.mem.indexOf(u8, attr.name, "antialias")) |_| {
+            if (attr.type == AttributeType.INT) antialias = attr.i else return error.ResizeAnitialiasNotINT;
+        } else if (std.mem.indexOf(u8, attr.name, "axes")) |_| {
+            if (attr.type == AttributeType.INTS) axes = attr.ints else return error.ResizeAxesNotINTS;
+        } else if (std.mem.indexOf(u8, attr.name, "coordinate_transformation_mode")) |_| {
+            if (attr.type == AttributeType.STRING) coordinate_transformation_mode = attr.s else return error.Resize_coordinate_transformation_mode_NotSTRING;
+        } else if (std.mem.indexOf(u8, attr.name, "cubic_coeff_a")) |_| {
+            if (attr.type == AttributeType.FLOAT) cubic_coeff_a = attr.f else return error.Resize_cubic_coeff_a_NotFLOAT;
+        } else if (std.mem.indexOf(u8, attr.name, "exclude_outside")) |_| {
+            if (attr.type == AttributeType.INT) exclude_outside = attr.i else return error.Resize_exclude_outside_NotINT;
+        } else if (std.mem.indexOf(u8, attr.name, "extrapolation_value")) |_| {
+            if (attr.type == AttributeType.FLOAT) extrapolation_value = attr.f else return error.Resize_extrapolation_value_NotFLOAT;
+        } else if (std.mem.indexOf(u8, attr.name, "keep_aspect_ratio_policy")) |_| {
+            if (attr.type == AttributeType.STRING) keep_aspect_ratio_policy = attr.s else return error.Resize_keep_aspect_ratio_policy_NotSTRING;
+        } else if (std.mem.indexOf(u8, attr.name, "mode")) |_| {
+            if (attr.type == AttributeType.STRING) mode = attr.s else return error.Resize_mode_NotSTRING;
+        } else if (std.mem.indexOf(u8, attr.name, "nearest_mode")) |_| {
+            if (attr.type == AttributeType.STRING) nearest_mode = attr.s else return error.Resize_nearest_mode_NotSTRING;
+        }
+    }
+
+    // ---- CREATING ATTRIBUTES strings
+    const axes_string = try utils.i64SliceToUsizeArrayString(axes);
+    _ = axes_string;
+
+    //pub fn rezise_lean(comptime T: type, t: *Tensor(T), comptime mode: []const u8, scales: ?[]const f32, sizes: ?[]const usize, coordinate_transformation_mode: []const u8, output_tensor: *Tensor(T)) !void {
+    _ = try writer.print(
+        \\
+        \\    tensMath.rezise_lean(
+        \\      T, 
+        \\      {s}, //*Tensor(T)
+        \\      {s}, //mode
+        \\      {s}, //scales: ?[]const f32
+        \\      {s}, //sizes: ?[]const usize
+        \\      {s}, //coordinate_transformation_mode: []const u8
+        \\      {s}, //output_tensor: *Tensor(T)
+        \\    )
+    ,
+        .{
+            tensor_X_string, // input
+            mode,
+            data_scales_string,
+            data_sizes_string,
+            coordinate_transformation_mode,
+            try utils.getSanitizedName(node.outputs.items[0].name), //output
+        },
     );
 }
