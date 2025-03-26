@@ -21,7 +21,7 @@ const ReadyNode = @import("globals.zig").ReadyNode;
 const ReadyTensor = @import("globals.zig").ReadyTensor;
 const codegen = @import("codegen.zig");
 const utils = codegen.utils;
-const codegen_options = @import("codegen_options");
+const CodeGenOptions = codegen.CodeGenOptions;
 const globals = @import("globals.zig");
 
 // ----------------------------------- SHAPE inference -----------------------------------

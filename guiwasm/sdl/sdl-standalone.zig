@@ -121,6 +121,43 @@ pub fn pageHome() !void {
         if (try (dvui.button(@src(), "Get Started", .{}, .{ .gravity_x = 0.5, .padding = dvui.Rect.all(15) }))) {
             page = .select_model;
         }
+
+        const color_field_options = dvui.StructFieldOptions(dvui.Color){ .fields = .{
+            .r = .{ .min = 0, .max = 255, .widget_type = .slider },
+            .g = .{ .min = 0, .max = 255, .widget_type = .slider },
+            .b = .{ .min = 0, .max = 255, .widget_type = .slider },
+            .a = .{ .disabled = true },
+        } };
+
+        try dvui.structEntryEx(@src(), "dvui.Theme", dvui.Theme, dvui.themeGet(), .{
+            .use_expander = false,
+            .label_override = "",
+            .fields = .{
+                .name = .{ .disabled = true },
+                .dark = .{ .widget_type = .toggle },
+                .style_err = .{ .disabled = true },
+                .style_accent = .{ .disabled = true },
+                .font_body = .{ .disabled = true },
+                .font_heading = .{ .disabled = true },
+                .font_caption = .{ .disabled = true },
+                .font_caption_heading = .{ .disabled = true },
+                .font_title = .{ .disabled = true },
+                .font_title_1 = .{ .disabled = true },
+                .font_title_2 = .{ .disabled = true },
+                .font_title_3 = .{ .disabled = true },
+                .font_title_4 = .{ .disabled = true },
+                .color_accent = color_field_options,
+                .color_err = color_field_options,
+                .color_text = color_field_options,
+                .color_text_press = color_field_options,
+                .color_fill = color_field_options,
+                .color_fill_window = color_field_options,
+                .color_fill_control = color_field_options,
+                .color_fill_hover = color_field_options,
+                .color_fill_press = color_field_options,
+                .color_border = color_field_options,
+            },
+        });
     }
 
     var footer = try dvui.textLayout(@src(), .{}, .{ .background = false, .gravity_x = 0.5, .gravity_y = 0.8 });
@@ -352,7 +389,7 @@ fn gui_frame() !void {
         try dvui.label(@src(), "Z-Ant", .{}, .{ .gravity_y = 0.5, .font_style = .heading });
 
         if (try dvui.buttonIcon(@src(), "back", entypo.moon, .{}, .{ .background = false, .gravity_y = 0.5, .gravity_x = 1.0, .margin = .{ .w = 20.0 } })) {
-            page = .home;
+            dvui.themeSet(dvui.Theme.QuickTheme.jungle);
         }
     }
 

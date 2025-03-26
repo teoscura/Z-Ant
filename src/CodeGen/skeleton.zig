@@ -11,7 +11,7 @@ const allocator = zant.utils.allocator.allocator;
 const codegen = @import("codegen.zig");
 const codeGenInitializers = codegen.parameters;
 const coddeGenPredict = codegen.predict;
-const codegen_options = @import("codegen_options");
+const CodeGenOptions = codegen.CodeGenOptions;
 
 /// Writes a Zig source file containing the generated code for an ONNX model.
 ///
@@ -24,7 +24,7 @@ const codegen_options = @import("codegen_options");
 ///
 /// # Errors
 /// This function may return an error if writing to the file fails.
-pub fn writeZigFile(model_name: []const u8, model_path: []const u8, model: ModelOnnx, do_export: bool) !void {
+pub fn writeZigFile(model_name: []const u8, model_path: []const u8, model: ModelOnnx, do_export: bool, options: CodeGenOptions) !void {
 
     //initializing writer for lib_operation file
     const lib_file_path = try std.fmt.allocPrint(allocator, "{s}lib_{s}.zig", .{ model_path, model_name });
@@ -47,7 +47,7 @@ pub fn writeZigFile(model_name: []const u8, model_path: []const u8, model: Model
     // Write the necessary library imports to the generated Zig file
     try write_libraries(lib_writer);
 
-    if (codegen_options.log) {
+    if (options.log) {
         //log function setting
         try write_logFunction(lib_writer);
     }
@@ -61,7 +61,7 @@ pub fn writeZigFile(model_name: []const u8, model_path: []const u8, model: Model
     try codeGenInitializers.write_parameters(param_writer, model);
 
     // Generate prediction function code
-    try coddeGenPredict.writePredict(lib_writer, do_export);
+    try coddeGenPredict.writePredict(lib_writer, do_export, options);
 }
 
 /// Writes the required library imports to the generated Zig file for predict function.

@@ -21,18 +21,18 @@ const ReadyNode = @import("globals.zig").ReadyNode;
 const ReadyTensor = @import("globals.zig").ReadyTensor;
 const codegen = @import("codegen.zig");
 const utils = codegen.utils;
-const codegen_options = @import("codegen_options");
+const CodeGenOptions = codegen.CodeGenOptions;
 const globals = @import("globals.zig");
 
 // ----------------------------------- MATH -----------------------------------
 
 /// This method map and write the ONNX operations with the Zant LeanTensorMath mathods
 /// Follow the link for details: https://onnx.ai/onnx/operators/?utm_source=chatgpt.com
-pub fn write_math_op(writer: std.fs.File.Writer, node: *ReadyNode) !void {
-    if (codegen_options.comm) {
+pub fn write_math_op(writer: std.fs.File.Writer, node: *ReadyNode, options: CodeGenOptions) !void {
+    if (options.comm) {
         try write_op_info(writer, node);
     }
-    if (codegen_options.log) {
+    if (options.log) {
         try writer.print(
             \\ 
             \\

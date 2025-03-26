@@ -8,46 +8,55 @@ pub const skeleton = @import("skeleton.zig");
 pub const globals = @import("globals.zig");
 pub const tests = @import("tests.zig");
 pub const utils = @import("utils.zig");
-//pub const zant_codegen = @import("main.zig").zant_codegen;
 
-// import di zant dal main
+// import di zant
 const zant = @import("zant");
 const onnx = zant.onnx;
 const Tensor = zant.core.tensor.Tensor;
 const tensorMath = zant.core.tensor.math_standard;
 const allocator = zant.utils.allocator.allocator;
 
-pub const ModelOptions = struct {
-    name: ?[:0]const u8,
-    path: ?[:0]const u8,
-    user_tests: ?[:0]const u8,
-    log: ?bool,
-    comm: ?bool,
-    shape: ?[:0]const u8,
-    type: ?[:0]const u8,
+pub const CodeGenOptions = struct {
+    model_name: [:0]const u8,
+    model_path: [:0]const u8,
+    user_tests: [:0]const u8,
+    log: bool,
+    comm: bool,
+    shape: [:0]const u8,
+    type: [:0]const u8,
 };
 
 pub fn main() !void {
-    // lancia run
+    const test_options = CodeGenOptions{
+        .model_name = "debug",
+        .model_path = "datasets/models/debug_model/debug_model.onnx",
+        .user_tests = "",
+        .log = false,
+        .comm = false,
+        .shape = "",
+        .type = "f32",
+    };
+    run(test_options);
 }
 
-pub fn run(model_options: ModelOptions) !void {
+pub fn run(options: CodeGenOptions) !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const gpa_allocator = gpa.allocator();
 
-    var model = try onnx.parseFromFile(gpa_allocator, model_options.path);
+    var model = try onnx.parseFromFile(gpa_allocator, options.model_path);
     defer model.deinit(gpa_allocator);
 
     //onnx.printStructure(&model);
 
     // Create the generated model directory if not present
-    const generated_path = try std.mem.concat(gpa, u8, &.{ "generated/", model_options.name, "/" });
+    const generated_path = try std.fmt.allocPrint(gpa_allocator, "generated/{s}/", .{options.model_name});
+    defer gpa_allocator.free(generated_path);
     //const generated_path = "src/codeGen/";
     try std.fs.cwd().makePath(generated_path);
 
     // ONNX model parsing
-    try globals.setGlobalAttributes(model);
+    try globals.setGlobalAttributes(model, options);
 
     model.print();
 
@@ -63,8 +72,8 @@ pub fn run(model_options: ModelOptions) !void {
     //////////////////////////////////////////
 
     // Create the code for the model
-    try skeleton.writeZigFile(model_options.name, model_options.path, model, true);
+    try skeleton.writeZigFile(options.model_path, generated_path, model, true);
 
     // Test the generated code
-    try tests.writeTestFile(model_options.name, generated_path);
+    try tests.writeTestFile(options.model_path, generated_path, options);
 }
