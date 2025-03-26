@@ -36,7 +36,7 @@ pub fn main() !void {
         .shape = "",
         .type = "f32",
     };
-    run(test_options);
+    try run(test_options);
 }
 
 pub fn run(options: CodeGenOptions) !void {
@@ -72,7 +72,7 @@ pub fn run(options: CodeGenOptions) !void {
     //////////////////////////////////////////
 
     // Create the code for the model
-    try skeleton.writeZigFile(options.model_path, generated_path, model, true);
+    try skeleton.writeZigFile(options.model_path, generated_path, model, true, options);
 
     // Test the generated code
     try tests.writeTestFile(options.model_path, generated_path, options);
