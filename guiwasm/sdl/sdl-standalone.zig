@@ -3,12 +3,17 @@ const builtin = @import("builtin");
 const dvui = @import("dvui");
 const Backend = dvui.backend;
 const entypo = dvui.entypo;
+const Color = dvui.Color;
+
+//const zant = @import("zant");
+//const codegen = @import("codegen");
+//const CodeGenOptions = codegen.CodeGenOptions;
 
 comptime {
     std.debug.assert(@hasDecl(Backend, "SDLBackend"));
 }
 
-const window_icon_png = @embedFile("zig-favicon.png");
+const window_icon_png = @embedFile("zant-favicon.png");
 const zant_icon = @embedFile("zant-icon.png");
 
 var gpa_instance = std.heap.GeneralPurposeAllocator(.{}){};
@@ -27,10 +32,71 @@ var g_win: ?*dvui.Window = null;
 /// - render frames only when needed
 ///
 /// Colors
-const orange = dvui.Color{ .r = 255, .g = 165, .b = 0, .a = 255 };
-const darkorange = dvui.Color{ .r = 172, .g = 99, .b = 22, .a = 255 };
-const hoverorange = dvui.Color{ .r = 235, .g = 227, .b = 213, .a = 255 };
-const lightorange = dvui.Color{ .r = 255, .g = 246, .b = 229, .a = 255 };
+const orange50 = Color{ .r = 255, .g = 252, .b = 234, .a = 255 };
+//const orange100 = Color{ .r = 255, .g = 245, .b = 197, .a = 255 };
+//const orange200 = Color{ .r = 255, .g = 235, .b = 133, .a = 255 };
+//const orange300 = Color{ .r = 255, .g = 219, .b = 70, .a = 255 };
+//const orange400 = Color{ .r = 255, .g = 200, .b = 27, .a = 255 };
+const orange500 = Color{ .r = 255, .g = 166, .b = 2, .a = 255 };
+const orange600 = Color{ .r = 226, .g = 125, .b = 0, .a = 255 };
+const orange700 = Color{ .r = 187, .g = 86, .b = 2, .a = 255 };
+//const orange800 = Color{ .r = 152, .g = 66, .b = 8, .a = 255 };
+//const orange900 = Color{ .r = 124, .g = 54, .b = 11, .a = 255 };
+const orange950 = Color{ .r = 72, .g = 26, .b = 0, .a = 255 };
+const transparent = Color{ .r = 0, .g = 0, .b = 0, .a = 0 };
+const white = Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
+const black = Color{ .r = 24, .g = 24, .b = 27, .a = 255 };
+const border_light = Color{ .r = 212, .g = 212, .b = 216, .a = 255 };
+const border_dark = Color{ .r = 39, .g = 39, .b = 42, .a = 255 };
+const grey_light = Color{ .r = 249, .g = 249, .b = 249, .a = 255 };
+const grey_dark = Color{ .r = 32, .g = 32, .b = 35, .a = 255 };
+const button_normal_light = Color{ .r = 240, .g = 240, .b = 240, .a = 255 };
+const button_hover_light = Color{ .r = 225, .g = 225, .b = 225, .a = 255 };
+const button_pressed_light = Color{ .r = 200, .g = 200, .b = 200, .a = 255 };
+const button_normal_dark = Color{ .r = 50, .g = 50, .b = 50, .a = 255 };
+const button_hover_dark = Color{ .r = 70, .g = 70, .b = 70, .a = 255 };
+const button_pressed_dark = Color{ .r = 100, .g = 100, .b = 100, .a = 255 };
+var background_color = white;
+var menubar_color = orange50;
+
+// Theme
+
+var darkmode = false;
+
+fn applyTheme() void {
+    const theme = dvui.themeGet();
+    if (!darkmode) {
+        theme.dark = false;
+        theme.color_accent = orange500;
+        //theme.color_err = red;
+        theme.color_text = black;
+        theme.color_text_press = black;
+        theme.color_fill = white;
+        theme.color_fill_window = grey_light;
+        theme.color_fill_control = button_normal_light;
+        theme.color_fill_hover = button_hover_light;
+        theme.color_fill_press = button_pressed_light;
+        theme.color_border = border_light;
+        background_color = white;
+        menubar_color = orange50;
+    } else {
+        theme.dark = true;
+        theme.color_accent = orange500;
+        //theme.color_err = red;
+        theme.color_text = white;
+        theme.color_text_press = white;
+        theme.color_fill = black;
+        theme.color_fill_window = grey_dark;
+        theme.color_fill_control = button_normal_dark;
+        theme.color_fill_hover = button_hover_dark;
+        theme.color_fill_press = button_pressed_dark;
+        theme.color_border = border_dark;
+        background_color = black;
+        menubar_color = orange950;
+    }
+}
+
+// Pages
 
 const Page = enum {
     home,
@@ -118,52 +184,19 @@ pub fn pageHome() !void {
         try heading.addText("Z-Ant Simplifies the Deployment\nand Optimization of Neural Networks\non Microprocessors", .{ .font_style = .title });
         heading.deinit();
 
-        if (try (dvui.button(@src(), "Get Started", .{}, .{ .gravity_x = 0.5, .padding = dvui.Rect.all(15) }))) {
+        if (try (dvui.button(@src(), "Get Started", .{}, .{ .gravity_x = 0.5, .padding = dvui.Rect.all(15), .color_fill = .{ .color = orange500 }, .color_fill_hover = .{ .color = orange600 }, .color_fill_press = .{ .color = orange700 }, .color_text = .{ .color = orange950 } }))) {
             page = .select_model;
         }
-
-        const color_field_options = dvui.StructFieldOptions(dvui.Color){ .fields = .{
-            .r = .{ .min = 0, .max = 255, .widget_type = .slider },
-            .g = .{ .min = 0, .max = 255, .widget_type = .slider },
-            .b = .{ .min = 0, .max = 255, .widget_type = .slider },
-            .a = .{ .disabled = true },
-        } };
-
-        try dvui.structEntryEx(@src(), "dvui.Theme", dvui.Theme, dvui.themeGet(), .{
-            .use_expander = false,
-            .label_override = "",
-            .fields = .{
-                .name = .{ .disabled = true },
-                .dark = .{ .widget_type = .toggle },
-                .style_err = .{ .disabled = true },
-                .style_accent = .{ .disabled = true },
-                .font_body = .{ .disabled = true },
-                .font_heading = .{ .disabled = true },
-                .font_caption = .{ .disabled = true },
-                .font_caption_heading = .{ .disabled = true },
-                .font_title = .{ .disabled = true },
-                .font_title_1 = .{ .disabled = true },
-                .font_title_2 = .{ .disabled = true },
-                .font_title_3 = .{ .disabled = true },
-                .font_title_4 = .{ .disabled = true },
-                .color_accent = color_field_options,
-                .color_err = color_field_options,
-                .color_text = color_field_options,
-                .color_text_press = color_field_options,
-                .color_fill = color_field_options,
-                .color_fill_window = color_field_options,
-                .color_fill_control = color_field_options,
-                .color_fill_hover = color_field_options,
-                .color_fill_press = color_field_options,
-                .color_border = color_field_options,
-            },
-        });
     }
 
-    var footer = try dvui.textLayout(@src(), .{}, .{ .background = false, .gravity_x = 0.5, .gravity_y = 0.8 });
+    var footer = try dvui.textLayout(@src(), .{}, .{
+        .background = false,
+        .gravity_x = 0.5,
+        .gravity_y = 0.8,
+    });
     try footer.addText("Z-Ant is an open-source project powered by Zig\nFor help visit our ", .{});
     footer.deinit();
-    if (try footer.addTextClick("GitHub", .{ .color_text = .{ .color = orange } })) {
+    if (try footer.addTextClick("GitHub", .{ .color_text = .{ .color = orange500 } })) {
         try dvui.openURL("https://github.com/ZantFoundation/Z-Ant");
     }
 }
@@ -220,7 +253,7 @@ pub fn pageSelectModel() !void {
                 model_options = enum_value;
             }
 
-            if (try dvui.button(@src(), "Generate Zig Code", .{}, .{ .gravity_x = 0.5, .margin = .{ .y = 20.0 }, .padding = dvui.Rect.all(15) })) {
+            if (try dvui.button(@src(), "Generate Zig Code", .{}, .{ .gravity_x = 0.5, .margin = .{ .y = 20.0 }, .padding = dvui.Rect.all(15), .color_fill = .{ .color = orange500 }, .color_fill_hover = .{ .color = orange600 }, .color_fill_press = .{ .color = orange700 }, .color_text = .{ .color = orange950 } })) {
                 if (std.mem.eql(u8, getModelPath(model_options), "")) {
                     try dvui.dialog(@src(), .{ .modal = true, .title = "Error", .message = "You must select a model" });
                 } else {
@@ -231,6 +264,7 @@ pub fn pageSelectModel() !void {
                     var argv2 = [_][]const u8{ "open", folder };
                     var child2 = std.process.Child.init(&argv2, pageallocator);
                     try child2.spawn();
+
                     page = .generating_code;
                 }
             }
@@ -246,7 +280,10 @@ pub fn pageGeneratingCode() !void {
         var vbox = try dvui.box(@src(), .vertical, .{ .gravity_x = 0.5, .gravity_y = 0.4 });
         defer vbox.deinit();
 
-        try dvui.label(@src(), "Generating Zig Code ...", .{}, .{ .font_style = .heading, .margin = .{ .h = 2.0 } });
+        try dvui.label(@src(), "Generating Zig Code ...", .{}, .{
+            .font_style = .heading,
+            .margin = .{ .h = 2.0 },
+        });
         try dvui.label(@src(), "Once completed, the code will be avaialbe in ~/generated", .{}, .{ .margin = .{ .h = 10.0 } });
 
         if (try dvui.button(@src(), "Continue", .{}, .{ .gravity_x = 0.5, .padding = dvui.Rect.all(15) })) {
@@ -279,10 +316,10 @@ pub fn pageDeployOptions() !void {
             _ = try dvui.dropdown(@src(), &target_cpu, &target_cpu_val, .{ .min_size_content = .{ .w = 150 }, .margin = .{ .h = 15.0 } });
 
             try dvui.label(@src(), "Target OS", .{}, .{ .font_style = .heading, .margin = .{ .h = 5.0 } });
-            _ = try dvui.dropdown(@src(), &target_os, &target_os_val, .{ .min_size_content = .{ .w = 150 }, .margin = .{ .h = 30.0 } });
+            _ = try dvui.dropdown(@src(), &target_os, &target_os_val, .{ .min_size_content = .{ .w = 150 }, .margin = .{ .h = 30.0 }, .color_accent = .{ .color = orange500 } });
         }
 
-        if (try dvui.button(@src(), "Generate Static Library", .{}, .{ .gravity_x = 0.5, .padding = dvui.Rect.all(15) })) {
+        if (try dvui.button(@src(), "Generate Static Library", .{}, .{ .gravity_x = 0.5, .padding = dvui.Rect.all(15), .color_fill = .{ .color = orange500 }, .color_fill_hover = .{ .color = orange600 }, .color_fill_press = .{ .color = orange700 }, .color_text = .{ .color = orange950 } })) {
             page = .generating_library;
         }
     }
@@ -376,8 +413,9 @@ pub fn main() !void {
 
 // both dvui and SDL drawing
 fn gui_frame() !void {
+    applyTheme();
     {
-        var m = try dvui.menu(@src(), .horizontal, .{ .background = true, .color_fill = .{ .color = lightorange }, .expand = .horizontal });
+        var m = try dvui.menu(@src(), .horizontal, .{ .background = true, .color_fill = .{ .color = menubar_color }, .expand = .horizontal });
         defer m.deinit();
 
         const imgsize = try dvui.imageSize("Z-Ant icon", zant_icon);
@@ -388,12 +426,13 @@ fn gui_frame() !void {
         });
         try dvui.label(@src(), "Z-Ant", .{}, .{ .gravity_y = 0.5, .font_style = .heading });
 
-        if (try dvui.buttonIcon(@src(), "back", entypo.moon, .{}, .{ .background = false, .gravity_y = 0.5, .gravity_x = 1.0, .margin = .{ .w = 20.0 } })) {
-            dvui.themeSet(dvui.Theme.QuickTheme.jungle);
+        if (try dvui.buttonIcon(@src(), "back", entypo.adjust, .{}, .{ .background = false, .gravity_y = 0.5, .gravity_x = 1.0, .margin = .{ .w = 20.0 }, .color_accent = .{ .color = transparent } })) {
+            darkmode = !darkmode;
+            applyTheme();
         }
     }
 
-    var scroll = try dvui.scrollArea(@src(), .{}, .{ .expand = .both, .color_fill = .{ .color = dvui.Color.white } });
+    var scroll = try dvui.scrollArea(@src(), .{}, .{ .expand = .both, .color_fill = .{ .color = background_color } });
     defer scroll.deinit();
     switch (page) {
         .home => try pageHome(),

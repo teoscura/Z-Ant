@@ -28,8 +28,8 @@ pub const CodeGenOptions = struct {
 
 pub fn main() !void {
     const test_options = CodeGenOptions{
-        .model_name = "debug",
-        .model_path = "datasets/models/debug_model/debug_model.onnx",
+        .model_name = "mnist-1",
+        .model_path = "/Users/curtisdas/Progetto di ingegneria informatica/Z-Ant-GUI/datasets/models/debug_model/debug_model.onnx",
         .user_tests = "",
         .log = false,
         .comm = false,
@@ -72,8 +72,8 @@ pub fn run(options: CodeGenOptions) !void {
     //////////////////////////////////////////
 
     // Create the code for the model
-    try skeleton.writeZigFile(options.model_path, generated_path, model, true, options);
+    try skeleton.writeZigFile(options.model_name, generated_path, model, true, options);
 
     // Test the generated code
-    try tests.writeTestFile(options.model_path, generated_path, options);
+    try tests.writeTestFile(options.model_name, generated_path, options);
 }
