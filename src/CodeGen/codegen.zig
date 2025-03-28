@@ -28,8 +28,8 @@ pub const CodeGenOptions = struct {
 
 pub fn main() !void {
     const test_options = CodeGenOptions{
-        .model_name = "mnist-1",
-        .model_path = "/Users/curtisdas/Progetto di ingegneria informatica/Z-Ant-GUI/datasets/models/debug_model/debug_model.onnx",
+        .model_name = "mnist-8",
+        .model_path = "datasets/models/debug_model/debug_model.onnx",
         .user_tests = "",
         .log = false,
         .comm = false,

@@ -33,15 +33,15 @@ var g_win: ?*dvui.Window = null;
 ///
 /// Colors
 const orange50 = Color{ .r = 255, .g = 252, .b = 234, .a = 255 };
-//const orange100 = Color{ .r = 255, .g = 245, .b = 197, .a = 255 };
-//const orange200 = Color{ .r = 255, .g = 235, .b = 133, .a = 255 };
-//const orange300 = Color{ .r = 255, .g = 219, .b = 70, .a = 255 };
-//const orange400 = Color{ .r = 255, .g = 200, .b = 27, .a = 255 };
+const orange100 = Color{ .r = 255, .g = 245, .b = 197, .a = 255 };
+const orange200 = Color{ .r = 255, .g = 235, .b = 133, .a = 255 };
+const orange300 = Color{ .r = 255, .g = 219, .b = 70, .a = 255 };
+const orange400 = Color{ .r = 255, .g = 200, .b = 27, .a = 255 };
 const orange500 = Color{ .r = 255, .g = 166, .b = 2, .a = 255 };
 const orange600 = Color{ .r = 226, .g = 125, .b = 0, .a = 255 };
 const orange700 = Color{ .r = 187, .g = 86, .b = 2, .a = 255 };
-//const orange800 = Color{ .r = 152, .g = 66, .b = 8, .a = 255 };
-//const orange900 = Color{ .r = 124, .g = 54, .b = 11, .a = 255 };
+const orange800 = Color{ .r = 152, .g = 66, .b = 8, .a = 255 };
+const orange900 = Color{ .r = 124, .g = 54, .b = 11, .a = 255 };
 const orange950 = Color{ .r = 72, .g = 26, .b = 0, .a = 255 };
 const transparent = Color{ .r = 0, .g = 0, .b = 0, .a = 0 };
 const white = Color{ .r = 255, .g = 255, .b = 255, .a = 255 };
@@ -61,6 +61,7 @@ var menubar_color = orange50;
 
 // Theme
 
+var first = true;
 var darkmode = false;
 
 fn applyTheme() void {
@@ -128,6 +129,13 @@ fn pathToFileName(fp: ?[:0]const u8) [:0]const u8 {
 
 fn isOnnx(fp: ?[:0]const u8) bool {
     if (fp) |path| {
+        const forbidden_chars = [_]u8{ '|', '&', ';', '$', '`', '>', '<' };
+        for (forbidden_chars) |c| {
+            if (std.mem.indexOfScalar(u8, path, c) != null) {
+                return false;
+            }
+        }
+        // Check file extension
         const extension: []const u8 = ".onnx";
         if (path.len >= extension.len) {
             return std.mem.endsWith(u8, path, extension);
@@ -257,14 +265,7 @@ pub fn pageSelectModel() !void {
                 if (std.mem.eql(u8, getModelPath(model_options), "")) {
                     try dvui.dialog(@src(), .{ .modal = true, .title = "Error", .message = "You must select a model" });
                 } else {
-                    var buf: [std.fs.max_path_bytes]u8 = undefined;
-                    const exe_dir = try std.fs.selfExeDirPath(&buf);
-                    const folder = try std.fs.path.join(std.heap.page_allocator, &[_][]const u8{ exe_dir, "generated/" });
-                    const pageallocator = std.heap.page_allocator;
-                    var argv2 = [_][]const u8{ "open", folder };
-                    var child2 = std.process.Child.init(&argv2, pageallocator);
-                    try child2.spawn();
-
+                    //std.debug.print("{s}", .{pathToName(getModelPath(model_options))});
                     page = .generating_code;
                 }
             }
@@ -413,7 +414,10 @@ pub fn main() !void {
 
 // both dvui and SDL drawing
 fn gui_frame() !void {
-    applyTheme();
+    if (first) {
+        applyTheme();
+        first = false;
+    }
     {
         var m = try dvui.menu(@src(), .horizontal, .{ .background = true, .color_fill = .{ .color = menubar_color }, .expand = .horizontal });
         defer m.deinit();
