@@ -1,37 +1,57 @@
 const std = @import("std");
-const builtin = @import("builtin");
 const dvui = @import("dvui");
-const Backend = dvui.backend;
+const WebBackend = dvui.backend;
+comptime {
+    std.debug.assert(@hasDecl(WebBackend, "WebBackend"));
+}
+usingnamespace WebBackend.wasm;
 const entypo = dvui.entypo;
 const Color = dvui.Color;
-
 //const zant = @import("zant");
-//const codegen = @import("codegen");
-//const CodeGenOptions = codegen.CodeGenOptions;
 
-comptime {
-    std.debug.assert(@hasDecl(Backend, "SDLBackend"));
+const WriteError = error{};
+const LogWriter = std.io.Writer(void, WriteError, writeLog);
+
+fn writeLog(_: void, msg: []const u8) WriteError!usize {
+    WebBackend.wasm.wasm_log_write(msg.ptr, msg.len);
+    return msg.len;
 }
 
-const window_icon_png = @embedFile("zant-favicon.png");
-const zant_icon = @embedFile("zant-icon.png");
+pub fn logFn(
+    comptime message_level: std.log.Level,
+    comptime scope: @Type(.enum_literal),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    const level_txt = switch (message_level) {
+        .err => "error",
+        .warn => "warning",
+        .info => "info",
+        .debug => "debug",
+    };
+    const prefix2 = if (scope == .default) ": " else "(" ++ @tagName(scope) ++ "): ";
+    const msg = level_txt ++ prefix2 ++ format ++ "\n";
+
+    (LogWriter{ .context = {} }).print(msg, args) catch return;
+    WebBackend.wasm.wasm_log_flush();
+}
+
+pub const std_options: std.Options = .{
+    // Overwrite default log handler
+    .logFn = logFn,
+};
 
 var gpa_instance = std.heap.GeneralPurposeAllocator(.{}){};
 const gpa = gpa_instance.allocator();
 
-const vsync = true;
-const show_demo = true;
-var scale_val: f32 = 1.0;
+var win: dvui.Window = undefined;
+var backend: WebBackend = undefined;
+var touchPoints: [2]?dvui.Point = [_]?dvui.Point{null} ** 2;
+var orig_content_scale: f32 = 1.0;
 
-var show_dialog_outside_frame: bool = false;
-var g_backend: ?Backend = null;
-var g_win: ?*dvui.Window = null;
+const zant_icon = @embedFile("zant-icon.png");
 
-/// This example shows how to use the dvui for a normal application:
-/// - dvui renders the whole application
-/// - render frames only when needed
-///
-/// Colors
+// Colors
 const orange50 = Color{ .r = 255, .g = 252, .b = 234, .a = 255 };
 const orange100 = Color{ .r = 255, .g = 245, .b = 197, .a = 255 };
 const orange200 = Color{ .r = 255, .g = 235, .b = 133, .a = 255 };
@@ -97,7 +117,7 @@ fn applyTheme() void {
     }
 }
 
-// Pages
+// Global variables
 
 const Page = enum {
     home,
@@ -114,6 +134,11 @@ var filename: ?[:0]const u8 = null;
 const ModelOptions = enum(u8) { default, debug_model, mnist_1, mnist_8, sentiment, wake_word, custom };
 var model_options: ModelOptions = @enumFromInt(0);
 const model_length = @typeInfo(ModelOptions).@"enum".fields.len;
+
+var target_cpu_val: usize = 0;
+var target_os_val: usize = 0;
+
+// Helper functions
 
 fn pathToFileName(fp: ?[:0]const u8) [:0]const u8 {
     if (fp == null or fp.?.len == 0) return "";
@@ -135,7 +160,6 @@ fn isOnnx(fp: ?[:0]const u8) bool {
                 return false;
             }
         }
-        // Check file extension
         const extension: []const u8 = ".onnx";
         if (path.len >= extension.len) {
             return std.mem.endsWith(u8, path, extension);
@@ -179,6 +203,8 @@ fn getModelPath(value: ModelOptions) []const u8 {
         },
     };
 }
+
+// Pages
 
 pub fn pageHome() !void {
     {
@@ -293,9 +319,6 @@ pub fn pageGeneratingCode() !void {
     }
 }
 
-var target_cpu_val: usize = 0;
-var target_os_val: usize = 0;
-
 pub fn pageDeployOptions() !void {
     if (try dvui.buttonIcon(@src(), "back", entypo.chevron_left, .{}, .{ .margin = dvui.Rect.all(15) })) {
         page = .select_model;
@@ -342,78 +365,113 @@ pub fn pageGeneratingLibrary() !void {
         }
     }
 }
-pub fn main() !void {
-    if (@import("builtin").os.tag == .windows) { // optional
-        // on windows graphical apps have no console, so output goes to nowhere - attach it manually. related: https://github.com/ziglang/zig/issues/4196
-        _ = winapi.AttachConsole(0xFFFFFFFF);
-    }
-    std.log.info("SDL version: {}", .{Backend.getSDLVersion()});
 
-    dvui.Examples.show_demo_window = show_demo;
+export fn app_init(platform_ptr: [*]const u8, platform_len: usize) i32 {
+    const platform = platform_ptr[0..platform_len];
+    dvui.log.debug("platform: {s}", .{platform});
+    const mac = if (std.mem.indexOf(u8, platform, "Mac") != null) true else false;
 
-    defer if (gpa_instance.deinit() != .ok) @panic("Memory leak on exit!");
+    backend = WebBackend.init() catch {
+        return 1;
+    };
+    win = dvui.Window.init(@src(), gpa, backend.backend(), .{ .keybinds = if (mac) .mac else .windows }) catch {
+        return 2;
+    };
 
-    // init SDL backend (creates and owns OS window)
-    var backend = try Backend.initWindow(.{
-        .allocator = gpa,
-        .size = .{ .w = 800.0, .h = 600.0 },
-        .min_size = .{ .w = 600.0, .h = 400.0 },
-        .vsync = vsync,
-        .title = "Z-Ant",
-        .icon = window_icon_png, // can also call setIconFromFileContent()
-    });
-    g_backend = backend;
-    defer backend.deinit();
+    WebBackend.win = &win;
 
-    // init dvui Window (maps onto a single OS window)
-    var win = try dvui.Window.init(@src(), gpa, backend.backend(), .{});
-    defer win.deinit();
+    orig_content_scale = win.content_scale;
 
-    main_loop: while (true) {
-
-        // beginWait coordinates with waitTime below to run frames only when needed
-        const nstime = win.beginWait(backend.hasEvent());
-
-        // marks the beginning of a frame for dvui, can call dvui functions after this
-        try win.begin(nstime);
-
-        // send all SDL events to dvui for processing
-        const quit = try backend.addAllEvents(&win);
-        if (quit) break :main_loop;
-
-        // if dvui widgets might not cover the whole window, then need to clear
-        // the previous frame's render
-        _ = Backend.c.SDL_SetRenderDrawColor(backend.renderer, 0, 0, 0, 255);
-        _ = Backend.c.SDL_RenderClear(backend.renderer);
-
-        // The demos we pass in here show up under "Platform-specific demos"
-        try gui_frame();
-
-        // marks end of dvui frame, don't call dvui functions after this
-        // - sends all dvui stuff to backend for rendering, must be called before renderPresent()
-        const end_micros = try win.end(.{});
-
-        // cursor management
-        backend.setCursor(win.cursorRequested());
-        backend.textInputRect(win.textInputRequested());
-
-        // render frame to OS
-        backend.renderPresent();
-
-        // waitTime and beginWait combine to achieve variable framerates
-        const wait_event_micros = win.waitTime(end_micros, null);
-        backend.waitEventTimeout(wait_event_micros);
-
-        // Example of how to show a dialog from another thread (outside of win.begin/win.end)
-        if (show_dialog_outside_frame) {
-            show_dialog_outside_frame = false;
-            try dvui.dialog(@src(), .{ .window = &win, .modal = false, .title = "Dialog from Outside", .message = "This is a non modal dialog that was created outside win.begin()/win.end(), usually from another thread." });
-        }
-    }
+    return 0;
 }
 
-// both dvui and SDL drawing
-fn gui_frame() !void {
+export fn app_deinit() void {
+    win.deinit();
+    backend.deinit();
+}
+
+// return number of micros to wait (interrupted by events) for next frame
+// return -1 to quit
+export fn app_update() i32 {
+    return update() catch |err| {
+        std.log.err("{!}", .{err});
+        const msg = std.fmt.allocPrint(gpa, "{!}", .{err}) catch "allocPrint OOM";
+        WebBackend.wasm.wasm_panic(msg.ptr, msg.len);
+        return -1;
+    };
+}
+
+fn update() !i32 {
+    const nstime = win.beginWait(backend.hasEvent());
+
+    try win.begin(nstime);
+
+    // Instead of the backend saving the events and then calling this, the web
+    // backend is directly sending the events to dvui
+    //try backend.addAllEvents(&win);
+
+    try dvui_frame();
+    //try dvui.label(@src(), "test", .{}, .{ .color_text = .{ .color = dvui.Color.white } });
+
+    //var indices: []const u32 = &[_]u32{ 0, 1, 2, 0, 2, 3 };
+    //var vtx: []const dvui.Vertex = &[_]dvui.Vertex{
+    //    .{ .pos = .{ .x = 100, .y = 150 }, .uv = .{ 0.0, 0.0 }, .col = .{} },
+    //    .{ .pos = .{ .x = 200, .y = 150 }, .uv = .{ 1.0, 0.0 }, .col = .{ .g = 0, .b = 0, .a = 200 } },
+    //    .{ .pos = .{ .x = 200, .y = 250 }, .uv = .{ 1.0, 1.0 }, .col = .{ .r = 0, .b = 0, .a = 100 } },
+    //    .{ .pos = .{ .x = 100, .y = 250 }, .uv = .{ 0.0, 1.0 }, .col = .{ .r = 0, .g = 0 } },
+    //};
+    //backend.drawClippedTriangles(null, vtx, indices);
+
+    const end_micros = try win.end(.{});
+
+    backend.setCursor(win.cursorRequested());
+    backend.textInputRect(win.textInputRequested());
+
+    const wait_event_micros = win.waitTime(end_micros, null);
+    return @intCast(@divTrunc(wait_event_micros, 1000));
+}
+
+fn dvui_frame() !void {
+    var new_content_scale: ?f32 = null;
+    var old_dist: ?f32 = null;
+    for (dvui.events()) |*e| {
+        if (e.evt == .mouse and (e.evt.mouse.button == .touch0 or e.evt.mouse.button == .touch1)) {
+            const idx: usize = if (e.evt.mouse.button == .touch0) 0 else 1;
+            switch (e.evt.mouse.action) {
+                .press => {
+                    touchPoints[idx] = e.evt.mouse.p;
+                },
+                .release => {
+                    touchPoints[idx] = null;
+                },
+                .motion => {
+                    if (touchPoints[0] != null and touchPoints[1] != null) {
+                        e.handled = true;
+                        var dx: f32 = undefined;
+                        var dy: f32 = undefined;
+
+                        if (old_dist == null) {
+                            dx = touchPoints[0].?.x - touchPoints[1].?.x;
+                            dy = touchPoints[0].?.y - touchPoints[1].?.y;
+                            old_dist = @sqrt(dx * dx + dy * dy);
+                        }
+
+                        touchPoints[idx] = e.evt.mouse.p;
+
+                        dx = touchPoints[0].?.x - touchPoints[1].?.x;
+                        dy = touchPoints[0].?.y - touchPoints[1].?.y;
+                        const new_dist: f32 = @sqrt(dx * dx + dy * dy);
+
+                        new_content_scale = @max(0.1, win.content_scale * new_dist / old_dist.?);
+                    }
+                },
+                else => {},
+            }
+        }
+    }
+
+    // GUI frame
+
     if (first) {
         applyTheme();
         first = false;
@@ -445,9 +503,8 @@ fn gui_frame() !void {
         .deploy_options => try pageDeployOptions(),
         .generating_library => try pageGeneratingLibrary(),
     }
-}
 
-// Optional: windows os only
-const winapi = if (builtin.os.tag == .windows) struct {
-    extern "kernel32" fn AttachConsole(dwProcessId: std.os.windows.DWORD) std.os.windows.BOOL;
-} else struct {};
+    if (new_content_scale) |ns| {
+        win.content_scale = ns;
+    }
+}

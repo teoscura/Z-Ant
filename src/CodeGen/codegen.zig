@@ -18,7 +18,7 @@ const allocator = zant.utils.allocator.allocator;
 
 pub const CodeGenOptions = struct {
     model_name: [:0]const u8,
-    model_path: [:0]const u8,
+    model_path: []u8,
     user_tests: [:0]const u8,
     log: bool,
     comm: bool,
@@ -27,16 +27,24 @@ pub const CodeGenOptions = struct {
 };
 
 pub fn main() !void {
-    const test_options = CodeGenOptions{
-        .model_name = "mnist-8",
-        .model_path = "datasets/models/debug_model/debug_model.onnx",
+    const page_allocator = std.heap.page_allocator;
+    var stdout = std.io.getStdOut().writer();
+    var stdin = std.io.getStdIn().reader();
+    try stdout.print("Enter a model path: ", .{});
+    const input = try stdin.readUntilDelimiterAlloc(page_allocator, '\n', 1024);
+    defer page_allocator.free(input);
+
+    const options = CodeGenOptions{
+        .model_name = "model",
+        .model_path = input,
         .user_tests = "",
         .log = false,
         .comm = false,
         .shape = "",
         .type = "f32",
     };
-    try run(test_options);
+
+    try run(options);
 }
 
 pub fn run(options: CodeGenOptions) !void {
