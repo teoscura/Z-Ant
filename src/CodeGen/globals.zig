@@ -16,7 +16,7 @@ const codegen = @import("codegen.zig");
 const utils = codegen.utils;
 const mathGen = codegen.math_handler;
 const shapeGen = codegen.shape_handler;
-const codegen_options = @import("codegen_options");
+const CodeGenOptions = codegen.CodeGenOptions;
 
 pub var readyGraph: std.ArrayList(ReadyNode) = std.ArrayList(ReadyNode).init(allocator);
 pub var tensorHashMap: std.StringHashMap(ReadyTensor) = std.StringHashMap(ReadyTensor).init(allocator); //key: TensorProto.name
@@ -133,7 +133,7 @@ pub const ReadyNode = struct {
     }
 };
 
-pub fn setGlobalAttributes(model: ModelOnnx) !void {
+pub fn setGlobalAttributes(model: ModelOnnx, options: CodeGenOptions) !void {
     //initializing global attributes
     readyGraph.deinit();
     readyGraph = std.ArrayList(ReadyNode).init(allocator);
@@ -142,7 +142,7 @@ pub fn setGlobalAttributes(model: ModelOnnx) !void {
     tensorHashMap = std.StringHashMap(ReadyTensor).init(allocator);
 
     //First convert the optional String of numbers divided by a comma into an array
-    const parsedInputshape: []const i64 = try utils.parseNumbers(codegen_options.shape);
+    const parsedInputshape: []const i64 = try utils.parseNumbers(options.shape);
 
     //setting the input
     const inputs = model.graph.?.inputs;

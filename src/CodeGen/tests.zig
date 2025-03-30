@@ -5,18 +5,20 @@ const globals = codegen.globals;
 const utils = codegen.utils;
 const onnx = zant.onnx;
 const ModelOnnx = onnx.ModelProto;
-const codegen_options = @import("codegen_options");
+const CodeGenOptions = codegen.CodeGenOptions;
 const allocator = zant.utils.allocator.allocator;
 
 pub fn UserTest(comptime T: type) type {
     return struct {
         name: []u8,
+        type: []u8,
         input: []T,
         output: []T,
+        expected_class: usize,
     };
 }
 
-fn writeModelOptionsFile(model_name: []const u8, model_path: []const u8) !void {
+fn writeModelOptionsFile(model_name: []const u8, model_path: []const u8, options: CodeGenOptions) !void {
     // Generate model_options.zig
 
     const model_options_path = try std.fmt.allocPrint(allocator, "{s}model_options.zig", .{model_path});
@@ -42,21 +44,12 @@ fn writeModelOptionsFile(model_name: []const u8, model_path: []const u8) !void {
         \\pub const data_type = {s};
         \\pub const enable_user_tests : bool = {any};
         \\pub const user_tests_path = "{s}";
-    , .{
-        model_name,
-        model_name,
-        globals.networkInput.shape.len,
-        globals.networkInput.shape,
-        output_data_len,
-        codegen_options.type,
-        codegen_options.user_tests.len > 0,
-        try std.fmt.allocPrint(allocator, "{s}user_tests.json", .{model_path})
-    });
-    
+    , .{ model_name, model_name, globals.networkInput.shape.len, globals.networkInput.shape, output_data_len, options.type, options.user_tests.len > 0, try std.fmt.allocPrint(allocator, "{s}user_tests.json", .{model_path}) });
+
     ////////////
 }
 
-pub fn writeTestFile(model_name: []const u8, model_path: []const u8) !void {
+pub fn writeTestFile(model_name: []const u8, model_path: []const u8, options: CodeGenOptions) !void {
 
     // Copy test file template into the generated test file
     const test_file_path = try std.fmt.allocPrint(allocator, "{s}test_{s}.zig", .{ model_path, model_name });
@@ -65,21 +58,21 @@ pub fn writeTestFile(model_name: []const u8, model_path: []const u8) !void {
     std.debug.print("\n\nGenerated test file: {s}\n", .{test_file_path});
 
     // Copy user test file into the generated test file
-    if (codegen_options.user_tests.len > 0) {
-        const provided_user_tests_path = codegen_options.user_tests;
+    if (options.user_tests.len > 0) {
+        const provided_user_tests_path = options.user_tests;
         const user_tests_path = try std.fmt.allocPrint(allocator, "{s}user_tests.json", .{model_path});
         try utils.copyFile(provided_user_tests_path, user_tests_path);
     }
 
-    try writeModelOptionsFile(model_name, model_path);
+    try writeModelOptionsFile(model_name, model_path, options);
 }
 
-pub fn writeSlimTestFile(model_name: []const u8, model_path: []const u8) !void {
+pub fn writeSlimTestFile(model_name: []const u8, model_path: []const u8, options: CodeGenOptions) !void {
     // Copy test file template into the generated test file
     const test_file_path = try std.fmt.allocPrint(allocator, "{s}test_{s}.zig", .{ model_path, model_name });
 
     try utils.copyFile("tests/CodeGen/test_model.slim.template.zig", test_file_path);
     std.debug.print("\n\nGenerated test file: {s}\n", .{test_file_path});
 
-    try writeModelOptionsFile(model_name, model_path);
+    try writeModelOptionsFile(model_name, model_path, options);
 }

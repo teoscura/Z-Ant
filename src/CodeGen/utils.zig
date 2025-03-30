@@ -383,6 +383,45 @@ pub inline fn sliceToUsizeSlice(slice: anytype) []usize {
     }
 }
 
+pub inline fn sliceToIsizeSlice(slice: anytype) []isize {
+    const T = @TypeOf(slice);
+    const info = @typeInfo(T);
+
+    switch (info) {
+        .pointer => {
+            const child = info.pointer.child;
+            const child_info = @typeInfo(child);
+
+            var output = allocator.alloc(isize, slice.len) catch @panic("Out of memory in sliceToIsizeSlice");
+            const maxIsize = std.math.maxInt(isize);
+            const minIsize = std.math.minInt(isize);
+
+            for (slice, 0..) |value, index| {
+                if (child_info == .int) {
+                    // Handle integer types
+                    if (value < minIsize or value > maxIsize) {
+                        @panic("Value out of isize range in sliceToIsizeSlice");
+                    }
+                    output[index] = @intCast(value);
+                } else if (child_info == .float) {
+                    // Handle float types
+                    if (value < @as(f64, @floatFromInt(minIsize)) or value > @as(f64, @floatFromInt(maxIsize))) {
+                        @panic("Value out of isize range in sliceToIsizeSlice");
+                    }
+                    output[index] = @intFromFloat(value);
+                } else {
+                    @compileError("Unsupported element type for sliceToIsizeSlice: " ++ @typeName(child));
+                }
+            }
+
+            return output;
+        },
+        else => {
+            @compileError("Unsupported type for sliceToIsizeSlice: " ++ @typeName(T));
+        },
+    }
+}
+
 pub fn i64ToI64ArrayString(values: []const i64) ![]const u8 {
     var buffer: [20]u8 = undefined;
     var res_string = try std.mem.concat(allocator, u8, &[_][]const u8{"&[_]i64{"});
@@ -450,7 +489,7 @@ pub fn copyFile(src: []const u8, dst: []const u8) !void {
     const dst_file = try std.fs.cwd().createFile(dst, .{});
     defer dst_file.close();
 
-    const src_content: []const u8 = try src_file.readToEndAlloc(allocator, 50 * 1024);
+    const src_content: []const u8 = try src_file.readToEndAlloc(allocator, 1024 * 1024);
     defer allocator.free(src_content);
 
     try dst_file.writeAll(src_content);
@@ -462,7 +501,7 @@ pub fn loadUserTests(comptime T: type, user_tests_path: []const u8) !std.json.Pa
     const user_tests_file = try std.fs.cwd().openFile(user_tests_path, .{});
     defer user_tests_file.close();
 
-    const user_tests_content: []const u8 = try user_tests_file.readToEndAlloc(allocator, 50 * 1024);
+    const user_tests_content: []const u8 = try user_tests_file.readToEndAlloc(allocator, 1024 * 1024);
     defer allocator.free(user_tests_content);
 
     const parsed_user_tests = try std.json.parseFromSlice([]tests.UserTest(T), allocator, user_tests_content, .{});

@@ -13,19 +13,19 @@ const allocator = zant.utils.allocator.allocator;
 const codegen = @import("codegen.zig");
 const utils = codegen.utils;
 const mathGen = codegen.math_handler;
-const codegen_options = @import("codegen_options");
+const CodeGenOptions = codegen.CodeGenOptions;
 
 const globals = codegen.globals;
 const ReadyNode = globals.ReadyNode;
 const ReadyTensor = globals.ReadyTensor;
 
 // Writes the computation function for predicting outputs
-pub inline fn writePredict(writer: std.fs.File.Writer, do_export: bool) !void {
+pub inline fn writePredict(writer: std.fs.File.Writer, do_export: bool, options: CodeGenOptions) !void {
     //declare all the outputs of each node of the network
     try write_outputsInitialization(writer);
 
     //method to reset the tensors values
-    try write_outputsResetMethod(writer);
+    try write_outputsResetMethod(writer, options);
 
     _ = try writer.print(
         \\
@@ -39,7 +39,7 @@ pub inline fn writePredict(writer: std.fs.File.Writer, do_export: bool) !void {
         \\) void {{
     , .{if (do_export == true) "export" else ""});
 
-    if (codegen_options.log) {
+    if (options.log) {
         _ = try writer.print(
             \\
             \\
@@ -59,9 +59,9 @@ pub inline fn writePredict(writer: std.fs.File.Writer, do_export: bool) !void {
 
     try write_predictInitialization(writer);
 
-    try write_graphSerialization(writer);
+    try write_graphSerialization(writer, options);
 
-    try writeReturn(writer);
+    try writeReturn(writer, options);
 
     _ = try writer.print(
         \\
@@ -70,7 +70,7 @@ pub inline fn writePredict(writer: std.fs.File.Writer, do_export: bool) !void {
 }
 
 // Processes and writes the computation graph
-inline fn write_graphSerialization(writer: std.fs.File.Writer) !void {
+inline fn write_graphSerialization(writer: std.fs.File.Writer, options: CodeGenOptions) !void {
     var iteration: usize = 0;
     var lastNode: *ReadyNode = undefined;
     while (true) {
@@ -84,7 +84,7 @@ inline fn write_graphSerialization(writer: std.fs.File.Writer) !void {
 
         for (computableNodes.items) |node_ptr| {
             //writing the operation
-            try writeOperation(writer, node_ptr);
+            try writeOperation(writer, node_ptr, options);
             //set the output as ready
             try utils.setOutputsReady(node_ptr, &globals.tensorHashMap);
         }
@@ -275,7 +275,7 @@ fn write_OutputTensor(writer: std.fs.File.Writer, name: []const u8, size: i64) !
     , .{ sanitized_name, size, size, sanitized_name, sanitized_name, sanitized_name });
 }
 
-fn write_outputsResetMethod(writer: std.fs.File.Writer) !void {
+fn write_outputsResetMethod(writer: std.fs.File.Writer, options: CodeGenOptions) !void {
     try writer.print(
         \\
         \\
@@ -283,7 +283,7 @@ fn write_outputsResetMethod(writer: std.fs.File.Writer) !void {
         \\fn resetOutputTensors() void {{
     , .{});
 
-    if (codegen_options.log) {
+    if (options.log) {
         _ = try writer.print(
             \\
             \\    if (log_function) |log| {{
@@ -306,7 +306,7 @@ fn write_outputsResetMethod(writer: std.fs.File.Writer) !void {
         }
     }
 
-    if (codegen_options.log) {
+    if (options.log) {
         _ = try writer.print(
             \\
             \\    if (log_function) |log| {{
@@ -374,18 +374,18 @@ fn write_predictInitialization(writer: std.fs.File.Writer) !void {
     });
 }
 
-fn writeOperation(writer: std.fs.File.Writer, readyNode: *ReadyNode) !void {
-    try mathGen.write_math_op(writer, readyNode);
+fn writeOperation(writer: std.fs.File.Writer, readyNode: *ReadyNode, options: CodeGenOptions) !void {
+    try mathGen.write_math_op(writer, readyNode, options);
 }
 
-fn writeReturn(writer: std.fs.File.Writer) !void {
+fn writeReturn(writer: std.fs.File.Writer, options: CodeGenOptions) !void {
     _ = try writer.print(
         \\
         \\    result.* = tensor_{s}.data.ptr;
         \\
     , .{try utils.getSanitizedName(globals.networkOutput.name)});
 
-    if (codegen_options.log) {
+    if (options.log) {
         _ = try writer.print(
             \\
             \\    if (log_function) |log| {{
