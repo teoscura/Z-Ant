@@ -412,24 +412,39 @@ def generate_fuzz_model(op_name):
         return [input_info], output_info, [node], initializers, metadata
 
     elif op_name == "Unsqueeze":
-        # Inserisce una dimensione in un asse casuale
-        shape = [random.randint(1,4) for _ in range(4)]
+        # Generate input tensor with random shape
+        shape = [random.randint(1,4) for _ in range(3)]  # Using smaller rank for simplicity
         data = np.random.randn(*shape).astype(np.float32)
         init_tensor = helper.make_tensor(input_names[0], TensorProto.FLOAT, shape, data.flatten().tolist())
         initializers.append(init_tensor)
+        
+        # In ONNX opset 13, 'axes' is an input, not an attribute
         rank = len(shape)
-        axis = random.randint(0, rank)
-        axes = [axis]
-        axes_tensor = helper.make_tensor(input_names[1], TensorProto.INT64, [len(axes)], axes)
+        axis = random.randint(0, rank)  # Keep axis in safe bounds
+        
+        # Create the axes tensor as second input
+        axes_tensor = helper.make_tensor(input_names[1], TensorProto.INT64, [1], [axis])
         initializers.append(axes_tensor)
+        
+        # Calculate output shape
         out_shape = shape.copy()
         out_shape.insert(axis, 1)
-        output_info = helper.make_tensor_value_info(output_names[0], TensorProto.FLOAT, out_shape)
-        node = helper.make_node(op_name, inputs=[input_names[0], input_names[1]], outputs=[output_names[0]],
-                                name=f"{op_name}node_axis{axis}")
         
+        # Create input and output tensor info
         input_info = helper.make_tensor_value_info("useless_input", TensorProto.FLOAT, shape)
-        metadata = {"input_shapes": [shape], "output_shapes": [out_shape], "axes": axes}
+        output_info = helper.make_tensor_value_info(output_names[0], TensorProto.FLOAT, out_shape)
+        
+        # Create node with axes as second input
+        node = helper.make_node(op_name, 
+                              inputs=[input_names[0], input_names[1]], 
+                              outputs=[output_names[0]],
+                              name=f"{op_name}node_axis{axis}")
+        
+        metadata = {
+            "input_shapes": [shape], 
+            "output_shapes": [out_shape], 
+            "axes": [axis]
+        }
         return [input_info], output_info, [node], initializers, metadata
 
     elif op_name == "Conv":
@@ -755,46 +770,45 @@ def main():
             try: 
                 metadata = generate_model(op, filename, i)
                 print(f"Successfully generated model for {op} (ID: {i})")
+                
+                try:
+                    data = run_model(filename)
+                    model_info = {
+                        "operation": op,
+                        "model_id": i,
+                        "inputs": data["inputs"],
+                        "outputs": data["outputs"],
+                        "metadata": metadata
+                    }
+                    
+                    test_file_name = f"{output_dir}{op}_{i}_user_tests.json"
+                    
+                    user_tests = []
+                    
+                    for (in_key, out_key) in zip(data["inputs"].keys(), data["outputs"].keys()):
+                        in_array = np.array(data["inputs"][in_key]).flatten().tolist()
+                        out_array = np.array(data["outputs"][out_key]).flatten().tolist()
+                        
+                        test_model_info = {
+                            "name": op,
+                            "type": "exact",
+                            "input": in_array,
+                            "output": out_array,
+                            "expected_class": 0
+                        }
+                        user_tests.append(test_model_info)
+                    
+                    with open(test_file_name, 'w') as f:
+                        json.dump(user_tests, f, indent=2)
+                    print(f"Execution data saved to {test_file_name}")
+                    
+                    all_models.append(model_info)
+                    print(f"Successfully ran model for {op} (ID: {i})")
+                except Exception as e:
+                    print(f"Error running model for {op} (ID: {i}): {e}")
+                    
             except Exception as e:
                 print(f"Error generating model for {op} (ID: {i}): {e}")
-
-            try:
-                data = run_model(filename)
-                model_info = {
-                    "operation": op,
-                    "model_id": i,
-                    "inputs": data["inputs"],
-                    "outputs": data["outputs"],
-                    "metadata": metadata
-                }
-                
-                test_file_name = f"{output_dir}{op}_{i}_user_tests.json"
-
-                
-                user_tests = []
-
-                for (in_key, out_key) in zip(data["inputs"].keys(), data["outputs"].keys()):
-                    in_array = np.array(data["inputs"][in_key]).flatten().tolist()
-                    out_array = np.array(data["outputs"][out_key]).flatten().tolist()
-                    
-                    test_model_info = {
-                        "name": op,
-                        "type": "exact",
-                        "input": in_array,
-                        "output": out_array,
-                        "expected_class": 0
-                    }
-                    user_tests.append(test_model_info)
-
-                with open(test_file_name, 'w') as f:
-                    json.dump(user_tests, f, indent=2)
-                print(f"Execution data saved to {test_file_name}")
-                    
-                
-                all_models.append(model_info)
-                print(f"Successfully ran model for {op} (ID: {i})")
-            except Exception as e:
-                print(f"Error running model for {op} (ID: {i}): {e}")
     
     with open(args.metadata_file, 'w') as f:
         json.dump(all_models, f, indent=2)
