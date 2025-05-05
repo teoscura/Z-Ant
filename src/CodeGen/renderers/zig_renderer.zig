@@ -11,6 +11,7 @@ const ConditionalRender = @import("conditional_render.zig");
 const UnaryRender = @import("unary_render.zig");
 const GepRender = @import("gep_render.zig");
 const ControlFlowRender = @import("controlflow_render.zig");
+const AccumRender = @import("accum_render.zig");
 const ViewManagerModule = @import("view_manager.zig");
 const ViewInfo = ViewManagerModule.ViewInfo;
 
@@ -416,7 +417,7 @@ pub fn ZigRenderer(comptime WriterType: type) type {
             }
 
             // Render based on UOp type
-            switch (uop.op) {
+            try switch (uop.op) {
                 .DEFINE_GLOBAL => try MemoryRender.render(self.allocator, self.writer, uop, ptr_map),
                 .LOAD => try MemoryRender.render(self.allocator, self.writer, uop, ptr_map),
                 .STORE => try MemoryRender.render(self.allocator, self.writer, uop, ptr_map),
@@ -444,12 +445,13 @@ pub fn ZigRenderer(comptime WriterType: type) type {
                 // TODO: Add rendering for other UOpTypes (REDUCE, CONDITIONAL, etc.)
                 // .REDUCE_ADD, .REDUCE_MAX => try ReduceRender.render(...),
                 // .IF, .ENDIF, .WHERE => try ConditionalRender.render(...),
-                // .DEFINE_ACC, .MULACC => ??? (Need specific renderers)
+                .DEFINE_ACC => AccumRender.render(self.allocator, self.writer, uop, ptr_map),
+                .MULACC => AccumRender.render(self.allocator, self.writer, uop, ptr_map),
                 else => {
                     std.log.err("Rendering not implemented for UOp type: {s} (id: {d})\n", .{ @tagName(uop.op), uop.id });
                     return RendererError.UnsupportedUOp;
                 },
-            }
+            };
 
             // Mark UOp as rendered *after* successful rendering
             // Need putNoClobber or similar if an op could somehow be rendered twice validly?
