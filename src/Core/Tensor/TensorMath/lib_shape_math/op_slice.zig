@@ -5,6 +5,10 @@ const Tensor = zant.core.tensor.Tensor;
 const TensorError = zant.utils.error_handler.TensorError;
 const TensorMathError = zant.utils.error_handler.TensorMathError;
 
+const UOpBuilder = zant.uops.UOpBuilder;
+const DType = zant.uops.DType;
+const Any = zant.uops.Any;
+
 const pkg_allocator = zant.utils.allocator.allocator;
 
 /// Implements the ONNX slice operator (https://onnx.ai/onnx/operators/onnx__Slice.html)
@@ -227,4 +231,66 @@ pub fn get_slice_output_shape(input_shape: []const usize, starts: []const i64, e
 
     std.log.debug("\n[DEBUG] Final output_shape: {any}\n", .{output_shape});
     return output_shape;
+}
+
+//Axes are required to be in order.
+pub fn lowerSlice(
+    b: *UOpBuilder,
+    A_id: usize,
+    a_shape: []const usize,
+    a_strides: []const isize,
+    out_dtype: DType,
+    starts: []const i64, 
+    ends: []const i64, 
+    axes: ?[]const i64, 
+    steps: ?[]const i64
+) usize {
+
+    if (starts.len != ends.len) return TensorError.InvalidSliceIndices;
+    if (axes) |a| {
+        if (a.len != starts.len) return TensorError.InvalidSliceIndices;
+    }
+    if (steps) |s| {
+        if (s.len != starts.len) return TensorError.InvalidSliceIndices;
+    }
+
+    const all_axes = try pkg_allocator.alloc(usize, a_shape);
+    defer pkg_allocator.free(all_axes);
+    for(1..all_axes.len+1)|i| all_axes[i-1] = i;
+    const flat_steps = try pkg_allocator.alloc(usize, a_shape);
+    defer pkg_allocator.free(flat_steps);
+    for(0..flat_steps.len)|i| flat_steps[i] = 1;
+
+    const axes_checked = if(axes) axes else all_axes;
+    const steps_checked = if(steps) steps else flat_steps;
+
+    const result_shape =  try pkg_allocator.alloc(usize, axes_checked.len);
+    defer pkg_allocator.free(result_shape);
+
+    for(0..starts.len)|i|{
+        result_shape[i] = ends[i]-starts[i];
+        result_shape[i] = result_shape[i]/steps_checked[i];
+    }
+
+    const a_view_id = b.push(.VIEW, out_dtype, &.{A_id}, Any{ .view_meta = .{ .shape = a_shape, .strides = a_strides } });
+
+    const slice_id = b.push( .DEFINE_GLOBAL, out_dtype, &.{}, Any{ .shape = result_shape });
+    const slice_view = b.push(.VIEW, out_dtype, &.{slice_id}, Any{ .view_meta = .{ .shape = result_shape, .strides = result_shape } });
+
+    var i: usize = 0;
+    var j: usize = 0;
+    for(0..result_shape.len)|d|{
+        i += starts[d]*a_strides[d];
+        for(0..result_shape[d]) |_| { 
+            const id_gep_load= b.push(.GEP, out_dtype, .{A_id, i}, Any{.mem_info = .{ .base = a_view_id, .offset = 0, .stride = 1 } });
+            const id_load = b.push(.LOAD, out_dtype,.{id_gep_load}, null);
+            const id_gep_store = b.push(.GEP, out_dtype, .{slice_id, j}, Any{ .mem_info = .{ .base = slice_view, .offset = 0, .stride = 1 } });
+            _ = b.push(.STORE, out_dtype, .{id_gep_store, id_load}, null);
+            i += steps[d];
+            j += 1;
+        }
+    }
+    
+    return slice_id;
+
 }

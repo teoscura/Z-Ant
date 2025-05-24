@@ -5,6 +5,10 @@ const Tensor = zant.core.tensor.Tensor;
 const TensorError = zant.utils.error_handler.TensorError;
 const TensorMathError = zant.utils.error_handler.TensorMathError;
 
+const UOpBuilder = zant.uops.UOpBuilder;
+const DType = zant.uops.DType;
+const Any = zant.uops.Any;
+
 const pkg_allocator = zant.utils.allocator.allocator;
 
 /// Split a tensor into multiple tensors along a specified axis.
@@ -227,3 +231,157 @@ pub fn get_split_output_shapes(input_shape: []const usize, axis: i64, split_size
 
     return output_shapes;
 }
+
+
+
+pub fn lowerSplit(
+    b: *UOpBuilder,
+    A_id: usize, // input-tensor SSA ids
+    a_shape: []const usize,
+    a_strides: []const isize,
+    out_dtype: DType,
+    axis: i64,
+    split_sizes: ?[]const usize
+) ![]usize {
+    // ── Tiny helpers to reduce boilerplate ────────────────────────────
+    const r = struct {
+        fn rng(bi: *UOpBuilder, start: usize, end: usize) usize {
+            return bi.push(.RANGE, .i32, &.{}, Any{ .loop_bounds = .{ .start = start, .end = end } });
+        }
+        
+        fn kconst(bi: *UOpBuilder, v: usize) usize {
+            return bi.push(.CONST, .i32, &.{}, Any{ .int = v });
+        }
+    };
+
+    // Handle negative axis
+    const positive_axis = @as(usize, @intCast(if (axis < 0) @as(i64, @intCast(a_shape.len)) + axis else axis));
+    if (positive_axis >= a_shape.len) return TensorError.InvalidAxis;
+
+    // Calculate split sizes
+    const dim_size = a_shape[positive_axis];
+    var sizes = std.ArrayList(usize).init(pkg_allocator);
+    defer sizes.deinit();
+
+    if (split_sizes) |s| {
+        // Validate and use provided split sizes
+        var total_size: usize = 0;
+        for (s) |size| {
+            try sizes.append(size);
+            total_size += size;
+        }
+        if (total_size != dim_size) return TensorError.InvalidSplitSize;
+    } else {
+        // Split into equal parts - for lowering, we need at least one output
+        const split_size = dim_size;
+        try sizes.append(split_size);
+    }
+
+    // Create a view for the input tensor
+    const id_viewA = b.push(.VIEW, out_dtype, &.{A_id}, Any{ .view_meta = .{ .shape = a_shape, .strides = a_strides } });
+    
+    // Create output buffers - one for each split
+    var output_ids = try pkg_allocator.alloc(usize, sizes.items.len);
+    defer pkg_allocator.free(output_ids);
+    
+    // Create output shapes - one for each split
+    var output_shapes = try pkg_allocator.alloc([]usize, sizes.items.len);
+    defer pkg_allocator.free(output_shapes);
+    
+    var offset: usize = 0;
+    
+    // Create each output tensor and compute its shape
+    for (sizes.items, 0..) |split_size, i| {
+        // Create output shape for this split
+        output_shapes[i] = try pkg_allocator.alloc(usize, a_shape.len);
+        defer pkg_allocator.free(output_shapes[i]);
+        
+        @memcpy(output_shapes[i], a_shape);
+        output_shapes[i][positive_axis] = split_size;
+        
+        // Create the output buffer
+        output_ids[i] = b.push(.DEFINE_GLOBAL, out_dtype, &.{}, Any{ .shape = output_shapes[i] });
+        
+        // Create loops to copy data
+        var loops = try pkg_allocator.alloc(usize, a_shape.len);
+        defer pkg_allocator.free(loops);
+        
+        // Create loops for each dimension
+        for (0..a_shape.len) |dim| {
+            const dim_size_for_loop = if (dim == positive_axis) split_size else a_shape[dim];
+            loops[dim] = r.rng(b, 0, dim_size_for_loop);
+        }
+        
+        // Calculate input indices based on output indices
+        var gep_args_in = std.ArrayList(usize).init(pkg_allocator);
+        defer gep_args_in.deinit();
+        
+        try gep_args_in.append(id_viewA); // Base tensor view
+        
+        // For each dimension, calculate the appropriate index
+        for (0..a_shape.len) |dim| {
+            if (dim == positive_axis) {
+                try gep_args_in.append(loops[dim], offset);
+            } else {
+                // For other axes, use the loop index directly
+                try gep_args_in.append(loops[dim]);
+            }
+        }
+        
+        // Create GEP for input access
+        const mem_info_in = Any{ .mem_info = .{ .base = id_viewA, .offset = 0, .stride = 1 } };
+        const id_gep_in = b.push(.GEP, out_dtype, gep_args_in.items, mem_info_in);
+        
+        // Load from input
+        const id_val = b.push(.LOAD, out_dtype, &.{id_gep_in}, null);
+        
+        // Create GEP for output access
+        var gep_args_out = std.ArrayList(usize).init(pkg_allocator);
+        defer gep_args_out.deinit();
+        
+        try gep_args_out.append(output_ids[i]); // Base output tensor
+        
+        // Add all loop dimensions for output indexing
+        for (0..a_shape.len) |dim| {
+            try gep_args_out.append(loops[dim]);
+        }
+        
+        // Store to output
+        const id_gep_out = b.push(.GEP, out_dtype, gep_args_out.items, Any{ 
+            .mem_info = .{ .base = output_ids[i], .offset = 0, .stride = 1 } 
+        });
+        _ = b.push(.STORE, out_dtype, &.{ id_gep_out, id_val }, null);
+        
+        // Close loops in reverse order
+        var dim: usize = a_shape.len;
+        while (dim > 0) {
+            dim -= 1;
+            _ = b.push(.ENDRANGE, .bool, &.{loops[dim]}, null);
+        }
+        
+        // Update the offset for the next split
+        offset += split_size;
+    }
+    
+    // Return the id of the first output buffer
+    // The caller is responsible for managing multiple outputs if needed
+    return output_ids;
+}
+
+
+fn get_strides(shape: []usize) ![]usize {
+    const num_dims = shape.len;
+    var strides = try pkg_allocator.alloc(usize, num_dims);
+    strides[num_dims - 1] = 1;
+    var i: usize = num_dims - 1;
+    while (i > 0) {
+        strides[i - 1] = strides[i] * shape[i];
+        i -= 1;
+    }
+    return strides;
+}
+
+// test: array 3x3x3, taglio tra il secondo asse 2 - 1
+//quindi ora ho 3x2x3 e 3x1x3
+//[1, 2]
+//1 23 1 23 1 23 A BC A BC A BC 12 3 12 3 12 3 
